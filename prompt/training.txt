@@ -14,8 +14,11 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, Bidirectional
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras.callbacks import TensorBoard
 
-from sklearn.metrics import classification_report, confusion_matrix
+
+from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
+from sklearn.preprocessing import label_binarize
 
 columns_dtype = {
     'flow_id': 'string',
@@ -393,8 +396,10 @@ x_train_rnn = x_train_rnn.astype('float32')
 x_val_rnn   = x_val_rnn.astype('float32')
 x_test_rnn  = x_test_rnn.astype('float32')
 
-batch_size = 32
+batch_size = 64
 epochs = 50
+
+tensorboard_cb = TensorBoard(log_dir="./stats/batch64-sequence5/logs", histogram_freq=1)
 
 early_stopping = EarlyStopping(
     monitor='val_loss',
@@ -417,7 +422,7 @@ history = model.fit(
     epochs=epochs,
     batch_size=batch_size,
     class_weight=class_weights_dict,
-    callbacks=[early_stopping, reduce_lr],
+    callbacks=[early_stopping, reduce_lr, tensorboard_cb],
     verbose=1
 )
 
@@ -433,7 +438,7 @@ print("\nClassification Report:")
 print(classification_report(y_test_rnn, y_pred, target_names=target_names, zero_division=0))
 
 conf_mat = confusion_matrix(y_test_rnn, y_pred)
-plt.figure(figsize=(8,6))
+plt.figure(figsize=(8, 6))
 sns.heatmap(conf_mat, annot=True, fmt='d', cmap='Blues',
             xticklabels=target_names, yticklabels=target_names)
 plt.xlabel('Predicted')
@@ -441,8 +446,60 @@ plt.ylabel('Actual')
 plt.title('Confusion Matrix')
 plt.show()
 
-model.save('models/model_batchsize32_sequence5.h5')
-print("Model saved to 'model_batchsize32_sequence5.h5'.")
+# -------------------------------
+# Training History Visualization
+# -------------------------------
+plt.figure(figsize=(12, 5))
+# Plot Loss
+plt.subplot(1, 2, 1)
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Val Loss')
+plt.title('Model Loss Over Epochs')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+
+# Plot Accuracy
+plt.subplot(1, 2, 2)
+plt.plot(history.history['accuracy'], label='Train Accuracy')
+plt.plot(history.history['val_accuracy'], label='Val Accuracy')
+plt.title('Model Accuracy Over Epochs')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+
+plt.tight_layout()
+plt.show()
+
+# -------------------------------
+# ROC Curves for Multi-Class
+# -------------------------------
+# Binarize the output labels for ROC curve computation
+y_test_bin = label_binarize(y_test_rnn, classes=range(num_classes))
+y_score = y_pred_probs
+
+fpr = dict()
+tpr = dict()
+roc_auc = dict()
+for i in range(num_classes):
+    fpr[i], tpr[i], _ = roc_curve(y_test_bin[:, i], y_score[:, i])
+    roc_auc[i] = auc(fpr[i], tpr[i])
+
+# Plot ROC curves for each class
+plt.figure(figsize=(8, 6))
+for i in range(num_classes):
+    plt.plot(fpr[i], tpr[i], lw=2, label=f"Class {target_names[i]} (AUC = {roc_auc[i]:0.2f})")
+plt.plot([0, 1], [0, 1], 'k--', lw=2)
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("Receiver Operating Characteristic (ROC) Curves")
+plt.legend(loc="lower right")
+plt.show()
+
+model.save('models/model_batchsize64_sequence5.h5')
+print("Model saved to 'model_batchsize64_sequence5.h5'.")
 
 # Save label encoders, scaler
 joblib.dump(le_label, 'encoders/label_encoder.pkl')

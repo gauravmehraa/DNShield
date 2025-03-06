@@ -248,19 +248,10 @@ def process_packet(packet):
         event['vowels_consonant_ratio'] = vowel_count / consonant_count if consonant_count > 0 else 0.0
 
         label, probs = predict_dns_event(event)
-        # Convert label to lower for consistent filtering
-        log_label = label.lower()
+        log_message = f"[{event['timestamp'].split('.')[0]}] [{label} {event_type}]: {query_name}"
+        message_queue.put(('log', log_message))
         
-        # Build a dictionary for the log
-        log_dict = {
-            "timestamp": event['timestamp'].split('.')[0],
-            "prediction": log_label,
-            "message": f"[{event['timestamp'].split('.')[0]}] [{label} {event_type}]: {query_name}"
-        }
-        message_queue.put(('log', log_dict))
-        
-        # Check consecutive threats
-        if log_label in ['malware', 'phishing', 'spam']:
+        if label.lower() in ['malware', 'phishing', 'spam']:
             consecutive_threat_count += 1
         else:
             consecutive_threat_count = 0
@@ -280,10 +271,10 @@ class FirewallUI(tk.Tk):
         super().__init__()
         self.title("DNShield")
         self.geometry("750x700")
-        self.iconbitmap("icons/icon.ico")  # For Windows taskbar
+        self.iconbitmap("icons/icon.ico")
         icon = Image.open('icons/icon.png')
         photo = ImageTk.PhotoImage(icon)
-        self.wm_iconphoto(False, photo)  # For title-bar icon (on some systems)
+        self.wm_iconphoto(False, photo)
         self.configure(bg="#f0f0f0")
         
         # Store all logs for filtering
@@ -330,7 +321,7 @@ class FirewallUI(tk.Tk):
         self.log_widget = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, font=('Segoe UI', 10), state='disabled', background="#ffffff")
         self.log_widget.pack(expand=True, fill='both')
         
-        # Configure text tags for styling logs based on prediction
+        # Configure text tags for styling logs based on prediction (original spacing)
         self.log_widget.tag_configure("benign", foreground="#008000", font=("Segoe UI", 10))
         self.log_widget.tag_configure("malware", foreground="#FF0000", font=("Segoe UI", 10))
         self.log_widget.tag_configure("phishing", foreground="#FFA500", font=("Segoe UI", 10))
@@ -380,27 +371,34 @@ class FirewallUI(tk.Tk):
         color = {"running": "green", "stopped": "red", "alert": "yellow", "idle": "gray"}.get(status, "gray")
         self.status_indicator.configure(foreground=color)
     
+    def parse_prediction(self, message):
+        if "-->" in message:
+            pred = message.split("-->")[-1].strip().lower()
+            if pred not in ["malware", "phishing", "spam"]:
+                return "benign"
+            return pred
+        return "other"
+    
     def update_stats(self):
         total = len(self.all_logs)
         benign = sum(1 for log in self.all_logs if log["prediction"] == "benign")
         malware = sum(1 for log in self.all_logs if log["prediction"] == "malware")
         phishing = sum(1 for log in self.all_logs if log["prediction"] == "phishing")
         spam = sum(1 for log in self.all_logs if log["prediction"] == "spam")
-        benign_pct = (benign / total * 100) if total else 0
-        malware_pct = (malware / total * 100) if total else 0
-        phishing_pct = (phishing / total * 100) if total else 0
-        spam_pct = (spam / total * 100) if total else 0
-        
-        text = (f"Total Logs: {total}  |  "
-                f"Benign: {benign} ({benign_pct:.1f}%)  |  "
-                f"Malware: {malware} ({malware_pct:.1f}%)  |  "
-                f"Phishing: {phishing} ({phishing_pct:.1f}%)  |  "
+        benign_pct = (benign/total*100) if total else 0
+        malware_pct = (malware/total*100) if total else 0
+        phishing_pct = (phishing/total*100) if total else 0
+        spam_pct = (spam/total*100) if total else 0
+        text = (f"Total Logs: {total}  |  Benign: {benign} ({benign_pct:.1f}%)  |  "
+                f"Malware: {malware} ({malware_pct:.1f}%)  |  Phishing: {phishing} ({phishing_pct:.1f}%)  |  "
                 f"Spam: {spam} ({spam_pct:.1f}%)")
         self.stats_label.config(text=text)
     
-    def log(self, log_dict):
-        """Stores the log dictionary, updates stats, and refreshes the log view."""
-        self.all_logs.append(log_dict)
+    def log(self, message):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        full_message = f"{message}"
+        pred_type = self.parse_prediction(full_message)
+        self.all_logs.append({"timestamp": timestamp, "prediction": pred_type, "message": full_message})
         self.update_stats()
         self.update_log_view()
     
@@ -409,7 +407,7 @@ class FirewallUI(tk.Tk):
         self.log_widget.configure(state='normal')
         self.log_widget.delete("1.0", tk.END)
         for entry in self.all_logs:
-            # Show only logs matching the filter (or all if filter=All)
+            # Always show all logs regardless of filter (or adjust if you want filtering)
             if current_filter == "all" or entry["prediction"] == current_filter:
                 self.log_widget.insert(tk.END, entry["message"] + "\n", entry["prediction"])
         self.log_widget.configure(state='disabled')
@@ -429,7 +427,6 @@ class FirewallUI(tk.Tk):
             except queue.Empty:
                 break
             if msg_type == 'log':
-                # 'content' is a dictionary with keys: 'timestamp', 'prediction', 'message'
                 self.log(content)
             elif msg_type == 'alert':
                 messagebox.showwarning("Alert", content)
@@ -447,18 +444,8 @@ class FirewallUI(tk.Tk):
             self.stop_button.config(state='normal')
             self.status_var.set(" Status: Running")
             self.update_status_indicator("running")
-            # Log a quick message
-            self.log({
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "prediction": "benign",
-                "message": "Firewall started."
-            })
-            # Insert an extra blank line
-            self.log({
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "prediction": "benign",
-                "message": ""
-            })
+            self.log("Firewall started.")
+            self.log("")
     
     def stop_firewall(self):
         global firewall_running, firewall_thread
@@ -470,16 +457,8 @@ class FirewallUI(tk.Tk):
             self.stop_button.config(state='disabled')
             self.status_var.set(" Status: Stopped")
             self.update_status_indicator("stopped")
-            self.log({
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "prediction": "benign",
-                "message": "Firewall stopped."
-            })
-            self.log({
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "prediction": "benign",
-                "message": ""
-            })
+            self.log("Firewall stopped.")
+            self.log("")
 
 if __name__ == '__main__':
     app = FirewallUI()
