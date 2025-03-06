@@ -1,0 +1,36 @@
+@startuml
+title DNShield - Flow
+
+start
+:Start DNShield;
+:Load model, label encoders,\nand scaler from disk;
+
+while (Firewall Running?)
+  :Sniff DNSpackets;
+  if (DNS Packet?) then (Yes)
+    :Extract:\n- Domain name / TLD / SLD\n- Packet-level info (bytes, TTL, etc.)\n- N-grams\n- Character distribution;
+    :Update rolling buffer of 5;
+    if (Buffer < 5 elements?) then (Yes)
+      :Replicate event until buffer\nis full;
+    endif
+    :Reshape input for RNN: [1 x 5 x 27];
+    :Predict with RNN model => [label, probability];
+    if (Malicious?) then (Yes)
+      :Log as Malicious;\nIncrement threat counter;
+      if (Threat counter >= 3) then (Yes)
+        :Raise alarm\nThreat counter = 0;
+      else (No)
+        :No major alert yet;
+      endif
+    else (No)
+      :Log as BENIGN;\nThreat counter = 0;
+    endif
+  else (No)
+    :Ignore packet;
+  endif
+endwhile (No => User stops firewall)
+
+:Stop sniffing;
+stop
+
+@enduml
