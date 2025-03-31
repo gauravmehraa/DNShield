@@ -1,0 +1,8 @@
+tkinter
+pandas
+numpy
+joblib
+tensorflow
+scapy
+pillow
+requests
