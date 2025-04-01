@@ -3,8 +3,8 @@ import threading, queue, time, re, ast, requests
 import pandas as pd
 import numpy as np
 import joblib
-import tensorflow.keras.models as keras_models
 
+from tensorflow.keras.models import load_model
 from datetime import datetime
 from tkinter import messagebox, scrolledtext, ttk
 from math import log2
@@ -283,7 +283,7 @@ def process_packet(packet):
 
 def run_firewall():
     while firewall_running:
-        sniff(filter="udp port 53", iface="Ethernet", prn=process_packet, store=0, timeout=1)
+        sniff(filter="udp port 53", iface="Wi-Fi", prn=process_packet, store=0, timeout=1)
 
 # ---------------------------
 # UI
