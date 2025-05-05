@@ -43,7 +43,7 @@ pip install -r requirements.txt
 ```
 Run the firewall application:
 ```bash
-python firewall.py
+python main.py
 ```
 
 ## Libraries & Technologies
